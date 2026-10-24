@@ -11,6 +11,8 @@ class Meeting {
     var secondDay: String?
     var secondStartTime: Date?
     var secondEndTime: Date?
+    @Relationship(deleteRule: .cascade, inverse: \Assignment.schoolClass)
+    var assignments: [Assignment]?
     
     init(name: String, day: String, sTime: Date, eTime: Date) {
         self.name = name
@@ -57,14 +59,12 @@ struct ContentView: View {
     @State private var showSaveError = false
     @State private var saveErrorMessage = ""
     @Environment(\.modelContext) private var modelContext
+    @Environment(\.dismiss) private var dismiss
     
     var body: some View {
         
         Form {
             
-            NavigationLink("My Classes") {
-                HomeScreen()
-            }
 
             TextField("Class name", text: $className)
             
@@ -128,7 +128,7 @@ struct ContentView: View {
             
             Button("Save", action: saveClass)
             .alert("Success!", isPresented: $showSuccessAlert){
-                Button("Ok", role: .cancel){}
+                Button("Ok", role: .cancel) { dismiss() }
             } message: {
                 Text("Your information has been succesfully added :)")
             }
@@ -145,6 +145,7 @@ struct ContentView: View {
                 Text(validationMessage)
             }
         }
+        .navigationTitle("Add Class")
     }
 
     private func saveClass() {
@@ -217,5 +218,5 @@ struct ContentView: View {
     NavigationStack {
         ContentView()
     }
-    .modelContainer(for: Meeting.self, inMemory: true)
+    .modelContainer(for: [Meeting.self, Assignment.self], inMemory: true)
 }

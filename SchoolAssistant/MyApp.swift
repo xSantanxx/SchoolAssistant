@@ -5,9 +5,9 @@ import SwiftData
     var body: some Scene {
         WindowGroup {
             NavigationStack {
-                ContentView()
+                HomeScreen()
             }
         }
-        .modelContainer(for: Meeting.self)
+        .modelContainer(for: [Meeting.self, Assignment.self])
     }
 }
