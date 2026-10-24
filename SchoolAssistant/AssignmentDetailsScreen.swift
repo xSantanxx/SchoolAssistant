@@ -22,6 +22,9 @@ struct AssignmentDetailsScreen: View {
             LabeledContent("Priority") {
                 Text(assignment.priority.title)
             }
+            Text(assignment.priority.reminderDescription)
+                .font(.caption)
+                .foregroundStyle(.secondary)
             if assignment.isCompleted {
                 Label("Completed", systemImage: "checkmark.circle.fill")
             } else {
@@ -45,6 +48,8 @@ struct AssignmentDetailsScreen: View {
         assignment.isCompleted = true
         do {
             try modelContext.save()
+            ReminderManager.shared.cancel(for: assignment)
+            Task { await ReminderManager.shared.refresh(context: modelContext) }
             dismiss()
         } catch {
             assignment.isCompleted = false

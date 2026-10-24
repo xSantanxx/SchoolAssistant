@@ -3,6 +3,9 @@ import SwiftData
 
 struct ClassesScreen: View {
     @Query(sort: \Meeting.name) private var classes: [Meeting]
+    @Environment(\.modelContext) private var modelContext
+    @State private var showDeleteError = false
+    @State private var deleteErrorMessage = ""
 
     var body: some View {
         List(classes) { schoolClass in
@@ -10,6 +13,13 @@ struct ClassesScreen: View {
                 AddAssignmentScreen(schoolClass: schoolClass)
             } label: {
                 ClassScheduleRow(schoolClass: schoolClass)
+            }
+            .swipeActions(edge: .trailing, allowsFullSwipe: true) {
+                Button(role: .destructive) {
+                    deleteClass(schoolClass)
+                } label: {
+                    Label("Delete", systemImage: "trash")
+                }
             }
         }
         .overlay {
@@ -22,12 +32,36 @@ struct ClassesScreen: View {
             }
         }
         .navigationTitle("My Classes")
+        .alert("Couldn’t Delete Class", isPresented: $showDeleteError) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(deleteErrorMessage)
+        }
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
-                NavigationLink("Add Class") {
-                    ContentView()
+                Menu("Add Class") {
+                    NavigationLink("Enter Manually") {
+                        ContentView()
+                    }
+                    NavigationLink("Import from Calendar") {
+                        CalendarImportScreen()
+                    }
                 }
             }
+        }
+    }
+    private func deleteClass(_ schoolClass: Meeting) {
+        // Capture notification IDs before the cascading deletion invalidates the models.
+        let identifiers = ReminderManager.shared.notificationIdentifiers(for: schoolClass)
+        modelContext.delete(schoolClass)
+        do {
+            try modelContext.save()
+            ReminderManager.shared.cancel(identifiers: identifiers)
+            Task { await ReminderManager.shared.refresh(context: modelContext) }
+        } catch {
+            modelContext.rollback()
+            deleteErrorMessage = error.localizedDescription
+            showDeleteError = true
         }
     }
 }
@@ -39,6 +73,11 @@ private struct ClassScheduleRow: View {
         VStack(alignment: .leading, spacing: 4) {
             Text(schoolClass.name)
                 .font(.headline)
+            ForEach(schoolClass.additionalSchedules ?? []) { schedule in
+                Text(schedule.day)
+                Text("\(schedule.start.formatted(date: .omitted, time: .shortened)) – \(schedule.end.formatted(date: .omitted, time: .shortened))")
+                    .font(.caption)
+            }
             Text(schoolClass.day)
             Text("\(schoolClass.sTime.formatted(date: .omitted, time: .shortened)) – \(schoolClass.eTime.formatted(date: .omitted, time: .shortened))")
                 .font(.caption)

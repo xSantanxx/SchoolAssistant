@@ -11,6 +11,9 @@ class Meeting {
     var secondDay: String?
     var secondStartTime: Date?
     var secondEndTime: Date?
+    var reminderID: UUID?
+    var calendarImportKey: String?
+    var additionalSchedules: [ClassMeetingTime]?
     @Relationship(deleteRule: .cascade, inverse: \Assignment.schoolClass)
     var assignments: [Assignment]?
     
@@ -51,8 +54,6 @@ struct ContentView: View {
     @State private var singleTime = MeetingTimeSelection()
     @State private var firstTime = MeetingTimeSelection()
     @State private var secondTime = MeetingTimeSelection()
-    @State private var meetingDate1 = Date()
-    @State private var meetingDate2 = Date()
     @State private var showAlert = false
     @State private var validationMessage = ""
     @State private var showSuccessAlert = false
@@ -89,7 +90,6 @@ struct ContentView: View {
                 
                 DatePicker("Ending Time", selection: $firstTime.end, displayedComponents: .hourAndMinute)
                 
-                DatePicker("Meeting Date 2", selection: $meetingDate1, displayedComponents: .date)
                 
                 
                 Picker("Meeting Day 2", selection: $meetingDay2){
@@ -126,6 +126,9 @@ struct ContentView: View {
                 DatePicker("Ending Time", selection: $singleTime.end, displayedComponents: .hourAndMinute)
             }
             
+            Text("Class check-ins repeat every week on each selected weekday at its ending time.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
             Button("Save", action: saveClass)
             .alert("Success!", isPresented: $showSuccessAlert){
                 Button("Ok", role: .cancel) { dismiss() }
@@ -200,6 +203,7 @@ struct ContentView: View {
         modelContext.insert(newMeeting)
         do {
             try modelContext.save()
+            Task { await ReminderManager.shared.refresh(context: modelContext, requestPermission: true) }
             showSuccessAlert = true
         } catch {
             modelContext.delete(newMeeting)

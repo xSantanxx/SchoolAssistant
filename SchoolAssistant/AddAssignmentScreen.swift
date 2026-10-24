@@ -11,7 +11,7 @@ struct AddAssignmentScreen: View {
     @State private var priority = AssignmentPriority.medium
     @State private var useWeeks = false
     @State private var weeks = 1
-    @State private var manualDueDate = Date()
+    @State private var manualDueDate = Calendar.current.date(bySettingHour: 23, minute: 59, second: 0, of: Date()) ?? Date()
     @State private var showError = false
     @State private var errorMessage = ""
 
@@ -28,6 +28,16 @@ struct AddAssignmentScreen: View {
                         Text(priority.title).tag(priority)
                     }
                 }
+            }
+
+            Section("Priority Reminders") {
+                ForEach(AssignmentPriority.allCases) { priority in
+                    Text(priority.reminderDescription)
+                        .font(.caption)
+                }
+                Text("Reminder times that have already passed are skipped. Notifications require permission in System Settings.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
 
             AssignmentDueDateFields(
@@ -74,6 +84,7 @@ struct AddAssignmentScreen: View {
         modelContext.insert(assignment)
         do {
             try modelContext.save()
+            Task { await ReminderManager.shared.refresh(context: modelContext, requestPermission: true) }
             dismiss()
         } catch {
             modelContext.delete(assignment)
