@@ -3,6 +3,7 @@ import SwiftData
 
 struct AddAssignmentScreen: View {
     let schoolClass: Meeting
+    var onSaved: (() -> Void)? = nil
 
     @Environment(\.modelContext) private var modelContext
     @Environment(\.dismiss) private var dismiss
@@ -15,11 +16,13 @@ struct AddAssignmentScreen: View {
     @State private var showError = false
     @State private var errorMessage = ""
 
+    private var isRegularActivity: Bool { schoolClass.isRegularActivity }
+
     var body: some View {
         Form {
-            Section("Assignment") {
-                LabeledContent("Class", value: schoolClass.name)
-                TextField("Assignment name", text: $name)
+            Section(isRegularActivity ? "Task" : "Assignment") {
+                LabeledContent(isRegularActivity ? "Activity" : "Class", value: schoolClass.name)
+                TextField(isRegularActivity ? "Task name" : "Assignment name", text: $name)
                 Text("The assigned date and time are recorded automatically when you save.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
@@ -46,10 +49,10 @@ struct AddAssignmentScreen: View {
                 manualDueDate: $manualDueDate
             )
 
-            Button("Save Assignment", action: saveAssignment)
+            Button(isRegularActivity ? "Save Task" : "Save Assignment", action: saveAssignment)
         }
-        .navigationTitle("Add Assignment")
-        .alert("Couldn’t save assignment", isPresented: $showError) {
+        .navigationTitle(isRegularActivity ? "Add Task" : "Add Assignment")
+        .alert(isRegularActivity ? "Couldn’t save task" : "Couldn’t save assignment", isPresented: $showError) {
             Button("OK", role: .cancel) {}
         } message: {
             Text(errorMessage)
@@ -59,7 +62,7 @@ struct AddAssignmentScreen: View {
     private func saveAssignment() {
         let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedName.isEmpty else {
-            errorMessage = "Enter an assignment name."
+            errorMessage = isRegularActivity ? "Enter a task name." : "Enter an assignment name."
             showError = true
             return
         }
@@ -85,7 +88,11 @@ struct AddAssignmentScreen: View {
         do {
             try modelContext.save()
             Task { await ReminderManager.shared.refresh(context: modelContext, requestPermission: true) }
-            dismiss()
+            if let onSaved {
+                onSaved()
+            } else {
+                dismiss()
+            }
         } catch {
             modelContext.delete(assignment)
             errorMessage = error.localizedDescription

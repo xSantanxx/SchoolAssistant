@@ -28,6 +28,7 @@ struct CalendarClassDraft: Identifiable {
     var name: String
     var schedules: [ClassMeetingTime]
     var isSelected = false
+    var isRegularActivity = false
 
     var isValid: Bool {
         !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty

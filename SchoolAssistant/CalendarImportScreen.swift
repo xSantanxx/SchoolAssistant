@@ -3,6 +3,7 @@ import SwiftData
 import EventKit
 
 struct CalendarImportScreen: View {
+    var isRegularActivity = false
     @Environment(\.modelContext) private var modelContext
     @Environment(\.dismiss) private var dismiss
     @State private var eventStore = EKEventStore()
@@ -16,8 +17,8 @@ struct CalendarImportScreen: View {
 
     var body: some View {
         Form {
-            Section("Find Your Classes") {
-                Text("Choose a date range containing your usual class schedule. Events from calendars connected to this device will be available for review.")
+            Section(isRegularActivity ? "Find Your Activities" : "Find Your Classes") {
+                Text(isRegularActivity ? "Choose a date range containing your usual activity schedule. Events from calendars connected to this device will be available for review." : "Choose a date range containing your usual class schedule. Events from calendars connected to this device will be available for review.")
                 DatePicker("From", selection: $startDate, displayedComponents: .date)
                 DatePicker("Through", selection: $endDate, displayedComponents: .date)
                 Button {
@@ -26,21 +27,21 @@ struct CalendarImportScreen: View {
                     if isLoading {
                         ProgressView("Reading Calendar…")
                     } else {
-                        Text("Find Classes in Calendar")
+                        Text(isRegularActivity ? "Find Activities in Calendar" : "Find Classes in Calendar")
                     }
                 }
                 .disabled(isLoading)
             }
             Section("Before Importing") {
-                Text("You’ll select which events are classes and review or edit their names, weekdays, and times before confirming.")
+                Text(isRegularActivity ? "You’ll select which events are activities and review or edit their names, weekdays, and times before confirming." : "You’ll select which events are classes and review or edit their names, weekdays, and times before confirming.")
                 Text("Events with the same name in the same calendar are grouped. All-day, canceled, and overnight events are excluded.")
-                Text("Imported times become weekly class schedules. This is a one-time import, not ongoing calendar sync. Your calendar events won’t be changed.")
+                Text(isRegularActivity ? "Imported times become weekly activity schedules. This is a one-time import, not ongoing calendar sync. Your calendar events won’t be changed." : "Imported times become weekly class schedules. This is a one-time import, not ongoing calendar sync. Your calendar events won’t be changed.")
             }
         }
         .navigationTitle("Import from Calendar")
         .sheet(isPresented: $showingReview) {
             NavigationStack {
-                CalendarImportReviewScreen(drafts: drafts) {
+                CalendarImportReviewScreen(drafts: drafts, isRegularActivity: isRegularActivity) {
                     showingReview = false
                     dismiss()
                 }
@@ -68,7 +69,7 @@ struct CalendarImportScreen: View {
         do {
             let granted = try await eventStore.requestFullAccessToEvents()
             guard granted else {
-                errorMessage = "Calendar access is off. Allow full Calendar access for SchoolAssistant in system Settings, or enter your classes manually."
+                errorMessage = isRegularActivity ? "Calendar access is off. Allow full Calendar access for SchoolAssistant in system Settings, or enter your activities manually." : "Calendar access is off. Allow full Calendar access for SchoolAssistant in system Settings, or enter your classes manually."
                 showError = true
                 return
             }
@@ -76,9 +77,13 @@ struct CalendarImportScreen: View {
             let events = eventStore.events(matching: predicate).sorted { $0.startDate < $1.startDate }
             let existing = try modelContext.fetch(FetchDescriptor<Meeting>())
             let importedKeys = Set(existing.compactMap(\.calendarImportKey))
-            drafts = CalendarClassDraft.group(events: events).filter { !importedKeys.contains($0.id) }
+            drafts = CalendarClassDraft.group(events: events).filter { !importedKeys.contains($0.id) }.map {
+                var draft = $0
+                draft.isRegularActivity = isRegularActivity
+                return draft
+            }
             guard !drafts.isEmpty else {
-                errorMessage = "No new timed events were found. Try another date range, check your connected calendars, or enter classes manually. Previously imported classes are skipped."
+                errorMessage = "No new timed events were found. Try another date range, check your connected calendars, or enter entries manually. Previously imported events are skipped."
                 showError = true
                 return
             }
@@ -92,6 +97,7 @@ struct CalendarImportScreen: View {
 
 struct CalendarImportReviewScreen: View {
     @State private var drafts: [CalendarClassDraft]
+    let isRegularActivity: Bool
     let onImported: () -> Void
     @Environment(\.modelContext) private var modelContext
     @Environment(\.dismiss) private var dismiss
@@ -99,8 +105,9 @@ struct CalendarImportReviewScreen: View {
     @State private var errorMessage = ""
     @State private var isSaving = false
 
-    init(drafts: [CalendarClassDraft], onImported: @escaping () -> Void) {
+    init(drafts: [CalendarClassDraft], isRegularActivity: Bool = false, onImported: @escaping () -> Void) {
         _drafts = State(initialValue: drafts)
+        self.isRegularActivity = isRegularActivity
         self.onImported = onImported
     }
 
@@ -109,21 +116,21 @@ struct CalendarImportReviewScreen: View {
     var body: some View {
         Form {
             Section {
-                Text("Select only your classes. Check every weekday and time before confirming. Times are shown in your device’s time zone and will repeat weekly.")
+                Text(isRegularActivity ? "Select your activities and their types. Check every weekday and time before confirming. Times are shown in your device’s time zone and will repeat weekly." : "Select only your classes. Check every weekday and time before confirming. Times are shown in your device’s time zone and will repeat weekly.")
             }
             ForEach($drafts) { $draft in
                 CalendarClassReviewSection(draft: $draft)
             }
-            Button("Confirm Import (\(selectedCount) classes)", action: importClasses)
+            Button("Confirm Import (\(selectedCount) entries)", action: importClasses)
                 .disabled(selectedCount == 0 || isSaving)
         }
-        .navigationTitle("Review Classes")
+        .navigationTitle(isRegularActivity ? "Review Activities" : "Review Classes")
         .toolbar {
             ToolbarItem(placement: .cancellationAction) {
                 Button("Cancel") { dismiss() }
             }
         }
-        .alert("Couldn’t Import Classes", isPresented: $showError) {
+        .alert(isRegularActivity ? "Couldn’t Import Activities" : "Couldn’t Import Classes", isPresented: $showError) {
             Button("OK", role: .cancel) {}
         } message: {
             Text(errorMessage)
@@ -133,7 +140,7 @@ struct CalendarImportReviewScreen: View {
     private func importClasses() {
         let selected = drafts.filter(\.isSelected)
         guard !selected.isEmpty, selected.allSatisfy(\.isValid) else {
-            errorMessage = "Each selected class needs a name and valid meeting times. Ending times must be later than starting times on the same day."
+            errorMessage = "Each selected entry needs a name and valid meeting times. Ending times must be later than starting times on the same day."
             showError = true
             return
         }
@@ -147,6 +154,7 @@ struct CalendarImportReviewScreen: View {
                 guard let first = draft.schedules.first else { continue }
                 let schoolClass = Meeting(name: draft.name.trimmingCharacters(in: .whitespacesAndNewlines),
                                           day: first.day, sTime: first.start, eTime: first.end)
+                schoolClass.isRegularActivity = draft.isRegularActivity
                 schoolClass.calendarImportKey = draft.id
                 if draft.schedules.count > 1 {
                     let second = draft.schedules[1]
@@ -179,7 +187,8 @@ private struct CalendarClassReviewSection: View {
                 .font(.caption)
                 .foregroundStyle(.secondary)
             if draft.isSelected {
-                TextField("Class name", text: $draft.name)
+                ActivityTypePicker(isRegularActivity: $draft.isRegularActivity)
+                TextField(draft.isRegularActivity ? "Activity name" : "Class name", text: $draft.name)
                 ForEach($draft.schedules) { $schedule in
                     VStack(alignment: .leading) {
                         Picker("Meeting day", selection: $schedule.day) {

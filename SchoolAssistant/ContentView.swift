@@ -4,6 +4,9 @@ import SwiftData
 @Model
 class Meeting {
     var name: String
+    // Default preserves existing records as class activities.
+    var isRegularActivity: Bool = false
+    var isDailyWork: Bool = false
     var day: String
     var sTime: Date
     var eTime: Date
@@ -46,6 +49,12 @@ struct MeetingTimeSelection {
 }
 
 struct ContentView: View {
+    @State private var isRegularActivity: Bool
+
+    init(isRegularActivity: Bool = false) {
+        _isRegularActivity = State(initialValue: isRegularActivity)
+    }
+
     @State private var className = ""
     @State private var days = ""
     @State private var meetingDay1 = ""
@@ -67,10 +76,11 @@ struct ContentView: View {
         Form {
             
 
-            TextField("Class name", text: $className)
+            ActivityTypePicker(isRegularActivity: $isRegularActivity)
+            TextField(isRegularActivity ? "Activity name" : "Class name", text: $className)
             
             
-            Button("Click if your class occurs on multiple days"){
+            Button(isRegularActivity ? "Click if your activity occurs on multiple days" : "Click if your class occurs on multiple days"){
                 showMultipleDays.toggle()
             }
             
@@ -126,7 +136,7 @@ struct ContentView: View {
                 DatePicker("Ending Time", selection: $singleTime.end, displayedComponents: .hourAndMinute)
             }
             
-            Text("Class check-ins repeat every week on each selected weekday at its ending time.")
+            Text(isRegularActivity ? "Activity check-ins repeat every week on each selected weekday at its ending time." : "Class check-ins repeat every week on each selected weekday at its ending time.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
             Button("Save", action: saveClass)
@@ -137,24 +147,24 @@ struct ContentView: View {
             }
             
             
-            .alert("Couldn’t save class", isPresented: $showSaveError) {
+            .alert(isRegularActivity ? "Couldn’t save activity" : "Couldn’t save class", isPresented: $showSaveError) {
                 Button("OK", role: .cancel) {}
             } message: {
                 Text(saveErrorMessage)
             }
-            .alert("Check class details", isPresented: $showAlert){
+            .alert(isRegularActivity ? "Check activity details" : "Check class details", isPresented: $showAlert){
                 Button("Ok", role: .cancel){}
             } message: {
                 Text(validationMessage)
             }
         }
-        .navigationTitle("Add Class")
+        .navigationTitle(isRegularActivity ? "Add Activity" : "Add Class")
     }
 
     private func saveClass() {
         let name = className.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !name.isEmpty else {
-            showValidation("Enter a class name.")
+            showValidation(isRegularActivity ? "Enter an activity name." : "Enter a class name.")
             return
         }
 
@@ -200,6 +210,7 @@ struct ContentView: View {
             newMeeting.secondEndTime = secondTime.end
         }
 
+        newMeeting.isRegularActivity = isRegularActivity
         modelContext.insert(newMeeting)
         do {
             try modelContext.save()

@@ -9,10 +9,12 @@ struct AssignmentDetailsScreen: View {
     @State private var showError = false
     @State private var errorMessage = ""
 
+    private var isRegularActivity: Bool { assignment.schoolClass?.isRegularActivity ?? false }
+
     var body: some View {
         Form {
             LabeledContent("Name", value: assignment.name)
-            LabeledContent("Class", value: assignment.schoolClass?.name ?? "Unknown class")
+            LabeledContent(isRegularActivity ? "Activity" : "Class", value: assignment.schoolClass?.name ?? "Unknown class")
             LabeledContent("Assigned") {
                 Text(assignment.assignedAt, format: .dateTime.year().month().day().hour().minute().second())
             }
@@ -31,13 +33,13 @@ struct AssignmentDetailsScreen: View {
                 Button("Mark Completed", action: completeAssignment)
             }
         }
-        .navigationTitle("Assignment Details")
+        .navigationTitle(isRegularActivity ? "Task Details" : "Assignment Details")
         .toolbar {
             ToolbarItem(placement: .confirmationAction) {
                 Button("Done") { dismiss() }
             }
         }
-        .alert("Couldn’t update assignment", isPresented: $showError) {
+        .alert(isRegularActivity ? "Couldn’t update task" : "Couldn’t update assignment", isPresented: $showError) {
             Button("OK", role: .cancel) {}
         } message: {
             Text(errorMessage)

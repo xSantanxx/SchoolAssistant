@@ -2,10 +2,15 @@ import SwiftUI
 import SwiftData
 
 struct ClassesScreen: View {
-    @Query(sort: \Meeting.name) private var classes: [Meeting]
+    var isRegularActivity = false
+    @Query(sort: \Meeting.name) private var allClasses: [Meeting]
     @Environment(\.modelContext) private var modelContext
     @State private var showDeleteError = false
     @State private var deleteErrorMessage = ""
+
+    private var classes: [Meeting] {
+        allClasses.filter { $0.isRegularActivity == isRegularActivity }
+    }
 
     var body: some View {
         List(classes) { schoolClass in
@@ -25,26 +30,26 @@ struct ClassesScreen: View {
         .overlay {
             if classes.isEmpty {
                 ContentUnavailableView(
-                    "No classes yet",
+                    isRegularActivity ? "No activities yet" : "No classes yet",
                     systemImage: "books.vertical",
-                    description: Text("Tap Add Class to create your first class.")
+                    description: Text(isRegularActivity ? "Tap Add Activity to create your first activity." : "Tap Add Class to create your first class.")
                 )
             }
         }
-        .navigationTitle("My Classes")
-        .alert("Couldn’t Delete Class", isPresented: $showDeleteError) {
+        .navigationTitle(isRegularActivity ? "My Activities" : "My Classes")
+        .alert(isRegularActivity ? "Couldn’t Delete Activity" : "Couldn’t Delete Class", isPresented: $showDeleteError) {
             Button("OK", role: .cancel) {}
         } message: {
             Text(deleteErrorMessage)
         }
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
-                Menu("Add Class") {
+                Menu(isRegularActivity ? "Add Activity" : "Add Class") {
                     NavigationLink("Enter Manually") {
-                        ContentView()
+                        ContentView(isRegularActivity: isRegularActivity)
                     }
                     NavigationLink("Import from Calendar") {
-                        CalendarImportScreen()
+                        CalendarImportScreen(isRegularActivity: isRegularActivity)
                     }
                 }
             }
@@ -73,20 +78,26 @@ private struct ClassScheduleRow: View {
         VStack(alignment: .leading, spacing: 4) {
             Text(schoolClass.name)
                 .font(.headline)
-            ForEach(schoolClass.additionalSchedules ?? []) { schedule in
-                Text(schedule.day)
-                Text("\(schedule.start.formatted(date: .omitted, time: .shortened)) – \(schedule.end.formatted(date: .omitted, time: .shortened))")
+            if schoolClass.isDailyWork {
+                Text("Daily tasks")
                     .font(.caption)
-            }
-            Text(schoolClass.day)
-            Text("\(schoolClass.sTime.formatted(date: .omitted, time: .shortened)) – \(schoolClass.eTime.formatted(date: .omitted, time: .shortened))")
-                .font(.caption)
-            if let day = schoolClass.secondDay,
-               let start = schoolClass.secondStartTime,
-               let end = schoolClass.secondEndTime {
-                Text(day)
-                Text("\(start.formatted(date: .omitted, time: .shortened)) – \(end.formatted(date: .omitted, time: .shortened))")
+                    .foregroundStyle(.secondary)
+            } else {
+                ForEach(schoolClass.additionalSchedules ?? []) { schedule in
+                    Text(schedule.day)
+                    Text("\(schedule.start.formatted(date: .omitted, time: .shortened)) – \(schedule.end.formatted(date: .omitted, time: .shortened))")
+                        .font(.caption)
+                }
+                Text(schoolClass.day)
+                Text("\(schoolClass.sTime.formatted(date: .omitted, time: .shortened)) – \(schoolClass.eTime.formatted(date: .omitted, time: .shortened))")
                     .font(.caption)
+                if let day = schoolClass.secondDay,
+                   let start = schoolClass.secondStartTime,
+                   let end = schoolClass.secondEndTime {
+                    Text(day)
+                    Text("\(start.formatted(date: .omitted, time: .shortened)) – \(end.formatted(date: .omitted, time: .shortened))")
+                        .font(.caption)
+                }
             }
         }
     }

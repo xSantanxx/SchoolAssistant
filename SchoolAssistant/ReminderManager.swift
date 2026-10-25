@@ -40,6 +40,30 @@ struct ReminderTiming {
 final class ReminderNotificationDelegate: NSObject, UNUserNotificationCenterDelegate {
     nonisolated func userNotificationCenter(
         _ center: UNUserNotificationCenter,
+        didReceive response: UNNotificationResponse,
+        withCompletionHandler completionHandler: @escaping @Sendable () -> Void
+    ) {
+        let opensDailyTask = response.actionIdentifier == UNNotificationDefaultActionIdentifier
+            && response.notification.request.identifier.hasPrefix("schoolassistant.daily.")
+        Self.finishResponse(opensDailyTask: opensDailyTask, completionHandler: completionHandler)
+    }
+
+    nonisolated static func finishResponse(
+        opensDailyTask: Bool,
+        completionHandler: @escaping @Sendable () -> Void
+    ) {
+        // UIKit may update its snapshot when this completion runs. The async
+        // delegate bridge completed on a worker thread and triggered an assertion.
+        Task { @MainActor in
+            if opensDailyTask {
+                ReminderManager.shared.showDailyTask = true
+            }
+            completionHandler()
+        }
+    }
+
+    nonisolated func userNotificationCenter(
+        _ center: UNUserNotificationCenter,
         willPresent notification: UNNotification,
         withCompletionHandler completionHandler: @escaping @Sendable (UNNotificationPresentationOptions) -> Void
     ) {
@@ -52,6 +76,7 @@ final class ReminderNotificationDelegate: NSObject, UNUserNotificationCenterDele
 final class ReminderManager {
     static let shared = ReminderManager()
 
+    var showDailyTask = false
     private(set) var message = ""
     private(set) var needsPermission = false
     private let center = UNUserNotificationCenter.current()
@@ -126,8 +151,8 @@ final class ReminderManager {
                 || settings.authorizationStatus == .provisional
                 || settings.authorizationStatus == .ephemeral else {
             message = needsPermission
-                ? "Enable notifications for assignment deadlines, class start times, and end-of-class check-ins."
-                : "Notifications are off. Enable them for SchoolAssistant in system Settings."
+                ? "Enable notifications for assignment and task deadlines, class and activity start times, and check-ins."
+                : "Notifications are off. Enable them for SchoolAssistant in System Settings."
             return
         }
 
@@ -169,7 +194,7 @@ final class ReminderManager {
             }
         }
 
-        for schoolClass in classes {
+        for schoolClass in classes where !schoolClass.isDailyWork {
             guard let id = schoolClass.reminderID else { continue }
             var schedules = [(schoolClass.day, schoolClass.sTime, schoolClass.eTime)]
             if let day = schoolClass.secondDay, let start = schoolClass.secondStartTime, let end = schoolClass.secondEndTime {
@@ -182,7 +207,9 @@ final class ReminderManager {
                     if let startDate = startTrigger.nextTriggerDate() {
                         let startContent = UNMutableNotificationContent()
                         startContent.title = "\(schoolClass.name) is starting"
-                        startContent.body = "Hope you enjoy today's class."
+                        startContent.body = schoolClass.isRegularActivity
+                            ? "Hope you enjoy today's activity."
+                            : "Hope you enjoy today's class."
                         startContent.sound = .default
                         let startRequest = UNNotificationRequest(
                             identifier: "\(prefix)class.\(id.uuidString).\(index).start",
@@ -196,7 +223,9 @@ final class ReminderManager {
                 guard let nextDate = trigger.nextTriggerDate() else { continue }
                 let content = UNMutableNotificationContent()
                 content.title = "\(schoolClass.name) is over"
-                content.body = "Were you assigned anything? Open My Classes and select \(schoolClass.name) to add an assignment."
+                content.body = schoolClass.isRegularActivity
+                    ? "Anything to do next? Open My Activities and select \(schoolClass.name) to add a task."
+                    : "Were you assigned anything? Open My Classes and select \(schoolClass.name) to add an assignment."
                 content.sound = .default
                 let request = UNNotificationRequest(identifier: "\(prefix)class.\(id.uuidString).\(index)",
                                                     content: content, trigger: trigger)
@@ -204,21 +233,44 @@ final class ReminderManager {
             }
         }
 
+        // Reserve room for the three daily prompts before filling the remaining
+        // notification budget with the nearest assignment and activity reminders.
+        let dailyRequests = DailyReminderSlot.allCases.map { slot in
+            let minutes = slot.minutes()
+            var components = DateComponents()
+            components.hour = minutes / 60
+            components.minute = minutes % 60
+            components.second = 0
+            let content = UNMutableNotificationContent()
+            content.title = "Write down your tasks"
+            content.body = "What do you need to do today? Tap to add a task to Daily Work."
+            content.sound = .default
+            return UNNotificationRequest(
+                identifier: "\(prefix)daily.\(slot.rawValue)",
+                content: content,
+                trigger: UNCalendarNotificationTrigger(dateMatching: components, repeats: true)
+            )
+        }
+
         let pending = await center.pendingNotificationRequests()
         let otherCount = pending.filter { !$0.identifier.hasPrefix(prefix) }.count
         // Keep the nearest reminders within the system's pending-notification budget.
         let capacity = max(0, 64 - otherCount)
-        let selected = Array(requests.sorted { $0.date < $1.date }.prefix(capacity))
-        let selectedIDs = Set(selected.map { $0.request.identifier })
+        let dailySelected = Array(dailyRequests.prefix(capacity))
+        let selected = Array(requests.sorted { $0.date < $1.date }.prefix(max(0, capacity - dailySelected.count)))
+        let selectedIDs = Set(selected.map { $0.request.identifier } + dailySelected.map(\.identifier))
         let obsolete = pending.filter {
             $0.identifier.hasPrefix(prefix) && !selectedIDs.contains($0.identifier)
         }.map(\.identifier)
         center.removePendingNotificationRequests(withIdentifiers: obsolete)
+        for request in dailySelected {
+            try await center.add(request)
+        }
         for entry in selected {
             // Reusing an identifier replaces its existing request instead of duplicating it.
             try await center.add(entry.request)
         }
-        message = requests.count > capacity
+        message = requests.count + dailyRequests.count > capacity
             ? "The nearest \(capacity) reminders are scheduled. Open the app regularly to schedule later reminders."
             : ""
     }

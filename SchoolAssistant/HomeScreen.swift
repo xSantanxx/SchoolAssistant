@@ -2,19 +2,28 @@ import SwiftUI
 import SwiftData
 
 struct HomeScreen: View {
+    @AppStorage("dailyLifeMode") private var isRegularActivity = false
     @AppStorage("userName") private var userName = ""
     @Query(filter: #Predicate<Assignment> { !$0.isCompleted },
            sort: \Assignment.assignedAt, order: .reverse)
-    private var activeAssignments: [Assignment]
+    private var allActiveAssignments: [Assignment]
     @Query(filter: #Predicate<Assignment> { $0.isCompleted },
            sort: \Assignment.assignedAt, order: .reverse)
-    private var completedAssignments: [Assignment]
+    private var allCompletedAssignments: [Assignment]
     @State private var selectedAssignment: Assignment?
     @State private var showDeleteError = false
     @State private var deleteErrorMessage = ""
     @Environment(\.modelContext) private var modelContext
     @Environment(\.scenePhase) private var scenePhase
     private let reminders = ReminderManager.shared
+
+    private var activeAssignments: [Assignment] {
+        allActiveAssignments.filter { ($0.schoolClass?.isRegularActivity ?? false) == isRegularActivity }
+    }
+
+    private var completedAssignments: [Assignment] {
+        allCompletedAssignments.filter { ($0.schoolClass?.isRegularActivity ?? false) == isRegularActivity }
+    }
 
     var body: some View {
         List {
@@ -52,9 +61,9 @@ struct HomeScreen: View {
         .overlay {
             if activeAssignments.isEmpty && completedAssignments.isEmpty {
                 ContentUnavailableView(
-                    "No assignments yet",
+                    isRegularActivity ? "You have no tasks scheduled today" : "No assignments yet",
                     systemImage: "list.bullet.clipboard",
-                    description: Text("Open My Classes and select a class to add an assignment.")
+                    description: Text(isRegularActivity ? "Open My Activities and select an activity to add a task." : "Open My Classes and select a class to add an assignment.")
                 )
             }
         }
@@ -78,28 +87,46 @@ struct HomeScreen: View {
         }
         .task(id: scenePhase) {
             if scenePhase == .active {
-                await reminders.refresh(context: modelContext)
+                await reminders.refresh(context: modelContext, requestPermission: true)
             }
         }
-        .alert("Couldn’t Delete Assignment", isPresented: $showDeleteError) {
+        .alert(isRegularActivity ? "Couldn’t Delete Task" : "Couldn’t Delete Assignment", isPresented: $showDeleteError) {
             Button("OK", role: .cancel) {}
         } message: {
             Text(deleteErrorMessage)
         }
-        .navigationTitle("My Assignments")
+        .navigationTitle(isRegularActivity ? "My Tasks" : "My Assignments")
         .toolbar {
             ToolbarItem(placement: .navigation) {
-                if !userName.isEmpty {
-                    Text(String(userName.prefix(12)))
-                        .font(.headline)
-                        .lineLimit(1)
-                        .truncationMode(.tail)
+                Menu {
+                    NavigationLink("Settings") {
+                        DailyReminderSettings()
+                    }
+                    Picker("Mode", selection: $isRegularActivity) {
+                        Text("Class").tag(false)
+                        Text("Daily Life").tag(true)
+                    }
+                } label: {
+                    HStack(spacing: 4) {
+                        Text(userName.isEmpty ? "Your Name" : String(userName.prefix(12)))
+                            .lineLimit(1)
+                            .truncationMode(.tail)
+                        Image(systemName: "chevron.down")
+                            .font(.caption)
+                    }
+                    .font(.headline)
                 }
+                .accessibilityValue(isRegularActivity ? "Daily Life" : "Class")
             }
             ToolbarItem(placement: .primaryAction) {
-                NavigationLink("My Classes") {
-                    ClassesScreen()
+                NavigationLink(isRegularActivity ? "My Activities" : "My Classes") {
+                    ClassesScreen(isRegularActivity: isRegularActivity)
                 }
+            }
+        }
+        .onChange(of: reminders.showDailyTask) {
+            if reminders.showDailyTask {
+                selectedAssignment = nil
             }
         }
         .sheet(item: $selectedAssignment) { assignment in
